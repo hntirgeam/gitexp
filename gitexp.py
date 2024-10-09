@@ -8,8 +8,8 @@ from git import Repo
 
 class CommitImporterService:
     def __init__(self, target_repo: Path, author: str) -> None:
-        self.target_repo = target_repo
-        self.target_repo_commits = self._get_repository_commits(repo_path=target_repo)
+        self.target_repo = Repo(target_repo)
+        self.target_repo_commits = self._get_repository_commits(source_repo=self.target_repo)
         self.author = author
 
     @staticmethod
@@ -18,27 +18,26 @@ class CommitImporterService:
         output = subprocess.getoutput(cmd=cmd)
         return output.split()
 
-    def _get_repository_commits(self, repo_path: str) -> None:
-        return set(Repo(repo_path).iter_commits())
+    def _get_repository_commits(self, source_repo: Repo) -> None:
+        return set(source_repo.iter_commits())
 
     def export_commits(self, repository: Path):
         existing_hashes = {i.message.strip() for i in self.target_repo_commits}
 
         commits_to_create = dict()
-        commits = self._get_repository_commits(repository)
+        source_repo = Repo(repository)
+        commits = self._get_repository_commits(source_repo)
         for commit in commits:
             if commit.hexsha not in existing_hashes and self.author in (commit.committer.email, commit.committer.name):
                 commits_to_create[commit.hexsha] = commit.committed_datetime
 
-        repo = Repo(self.target_repo)
         for hash, date in commits_to_create.items():
             date = str(date)
             os.environ["GIT_AUTHOR_DATE"] = date
             os.environ["GIT_COMMITTER_DATE"] = date
-            repo.git.commit("-m", hash, "--allow-empty")
-            
-        print(f"Done exporting {len(commits_to_create)}")
-        print('Go to target repo and run "git push"')
+            self.target_repo.git.commit("-m", hash, "--allow-empty")
+
+        print(f"Done exporting {len(commits_to_create)} commits from {source_repo.remotes.origin.url.split("/")[-1]}")
 
 
 if __name__ == "__main__":
@@ -54,3 +53,4 @@ if __name__ == "__main__":
     repositories = CommitImporterService.get_repositories(path=args.source)
     for repository in repositories:
         service.export_commits(repository)
+    print('Go to target repo and run "git push"')
